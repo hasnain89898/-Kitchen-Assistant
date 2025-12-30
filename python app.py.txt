@@ -1,0 +1,364 @@
+import tkinter as tk
+from tkinter import ttk
+import pandas as pd
+from sklearn.neighbors import NearestNeighbors
+
+# ---------------------------
+# Unit Conversion Helpers
+# ---------------------------
+BASE_UNIT = {
+    "oil": "cup", "yogurt": "cup", "milk": "cup", "tomato": "cup", "rice": "cup",
+    "eggs": "pcs", "bread": "pcs", "chicken": "pcs", "potato": "pcs", "onion": "pcs",
+    "bay leaf": "pcs", "green chilli": "pcs", "salt": "tsp", "garam masala": "tsp",
+    "turmeric": "tsp", "red chilli": "tsp", "black pepper": "tsp", "cheese": "cup",
+    "lettuce": "cup", "mayonnaise": "tbsp", "pasta": "cup", "beef": "pcs",
+    "cucumber": "pcs", "tomato paste": "tbsp", "garlic": "pcs", "lemon": "pcs",
+    "pita bread": "pcs", "tahini": "tbsp", "chickpeas": "cup"
+}
+
+VOLUME_TO_CUP = {"cup": 1.0, "tbsp": 1/16.0, "tsp": 1/48.0}
+UNIT_OPTIONS = ["cup", "tbsp", "tsp", "pcs"]
+
+def convert_to_base(amount, from_unit, ingredient):
+    """Convert amount in from_unit to the ingredient's base numeric unit."""
+    base = BASE_UNIT.get(ingredient, "pcs")
+    if base in ("cup", "tbsp", "tsp"):
+        if from_unit not in VOLUME_TO_CUP:
+            return amount
+        cups = amount * VOLUME_TO_CUP[from_unit]
+        if base == "cup":
+            return cups
+        elif base == "tbsp":
+            return cups * 16.0
+        elif base == "tsp":
+            return cups * 48.0
+    return amount
+
+# ---------------------------
+# Core Classes
+# ---------------------------
+class KitchenStock:
+    def __init__(self):
+        self.available = {}
+
+    def reset(self):
+        self.available = {}
+
+    def update_stock(self, ingredient, qty_in_base):
+        self.available[ingredient] = self.available.get(ingredient, 0) + qty_in_base
+
+    def check_availability(self, recipe):
+        """Return dict of missing {ingredient: (qty_missing, unit)}."""
+        missing = {}
+        for item, (req_qty, req_unit) in recipe.items():
+            req_in_base = convert_to_base(req_qty, req_unit, item)
+            have = self.available.get(item, 0)
+            if have < req_in_base:
+                diff_base = req_in_base - have
+                # Express missing amount in recipe's unit for clarity
+                if req_unit in VOLUME_TO_CUP:
+                    base = BASE_UNIT.get(item, "pcs")
+                    if base == "cup":
+                        cups = diff_base
+                    elif base == "tbsp":
+                        cups = diff_base / 16.0
+                    elif base == "tsp":
+                        cups = diff_base / 48.0
+                    else:
+                        cups = diff_base
+                    missing_qty = round(cups / VOLUME_TO_CUP[req_unit], 2)
+                else:
+                    missing_qty = int(round(diff_base))
+                missing[item] = (missing_qty, req_unit)
+        return missing
+
+class RecipeBook:
+    def __init__(self, recipes):
+        # normalize keys to lowercase
+        self.recipes = {name.lower(): {ing.lower(): (qty, unit) for ing, (qty, unit) in ing_map.items()}
+                        for name, ing_map in recipes.items()}
+
+    def get_recipe(self, dish_name):
+        if not dish_name:
+            return None
+        return self.recipes.get(dish_name.lower())
+
+class MLModel:
+    def __init__(self, recipes, stock):
+        # Build numeric dataframe: rows = recipes, cols = ingredients (numeric in base units)
+        rows = {}
+        for name, ing_map in recipes.items():
+            numeric = {}
+            for ing, (qty, unit) in ing_map.items():
+                numeric[ing.lower()] = convert_to_base(qty, unit, ing.lower())
+            rows[name.lower()] = numeric
+        self.df = pd.DataFrame(rows).fillna(0).T
+        self.vocab = self.df.columns.tolist()
+        self.stock = stock
+        n_samples = self.df.shape[0]
+        n_neighbors = min(5, max(1, n_samples))
+        self.model = NearestNeighbors(n_neighbors=n_neighbors, metric="cosine")
+        self.model.fit(self.df.values)
+
+    def suggest(self, top_k=5):
+        stock_vector = pd.Series(self.stock.available).reindex(self.vocab).fillna(0).values.reshape(1, -1)
+        distances, indices = self.model.kneighbors(stock_vector)
+        ranked = self.df.index[indices[0]].tolist()
+        return ranked[:top_k]
+
+class CookingAssistant:
+    def __init__(self, stock, recipe_book, ml_model):
+        self.stock = stock
+        self.recipe_book = recipe_book
+        self.ml_model = ml_model
+
+    def can_cook(self, dish_name):
+        recipe = self.recipe_book.get_recipe(dish_name)
+        if not recipe:
+            return None, f"Recipe '{dish_name}' not found."
+        missing = self.stock.check_availability(recipe)
+        return missing, None
+
+    def suggest_alternatives(self, scope_recipes=None):
+        # Prefer fully cookable recipes in scope, else ML nearest matches
+        suggestions = []
+        if scope_recipes:
+            for name, recipe in scope_recipes.items():
+                if self.stock.check_availability(recipe) == {}:
+                    suggestions.append(name)
+        else:
+            for name, recipe in self.recipe_book.recipes.items():
+                if self.stock.check_availability(recipe) == {}:
+                    suggestions.append(name)
+        if suggestions:
+            return suggestions[:5]
+        ml_ranked = self.ml_model.suggest(top_k=10)
+        if scope_recipes:
+            ml_ranked = [r for r in ml_ranked if r in scope_recipes]
+        return ml_ranked[:5]
+
+# ---------------------------
+# Recipes (Asian, Western, Arab)
+# ---------------------------
+asian_recipes = {
+    "omelette": {"eggs": (2, "pcs"), "oil": (1, "tbsp"), "salt": (0.25, "tsp")},
+    "rice": {"rice": (1.5, "cup"), "salt": (0.5, "tsp"), "oil": (1, "tbsp")},
+    "chicken curry": {"chicken": (2, "pcs"), "oil": (2, "tbsp"), "salt": (0.5, "tsp"),
+                      "garam masala": (0.5, "tsp"), "bay leaf": (1, "pcs")},
+    "spicy eggs": {"eggs": (2, "pcs"), "green chilli": (2, "pcs"), "oil": (1, "tbsp"), "salt": (0.25, "tsp")},
+    "aloo curry": {"potato": (2, "pcs"), "oil": (1, "tbsp"), "salt": (0.5, "tsp"), "red chilli": (0.5, "tsp")},
+    "biryani": {"oil": (0.5, "cup"), "chicken": (1, "pcs"), "rice": (2, "cup"), "onion": (2, "pcs"),
+                "yogurt": (0.5, "cup"), "green chilli": (4, "pcs"), "garam masala": (1, "tsp"),
+                "bay leaf": (3, "pcs"), "salt": (1, "tsp"), "turmeric": (0.5, "tsp")}
+}
+
+western_recipes = {
+    "grilled cheese": {"bread": (2, "pcs"), "cheese": (0.5, "cup"), "oil": (1, "tbsp")},
+    "pasta": {"pasta": (2, "cup"), "oil": (1, "tbsp"), "salt": (0.5, "tsp"), "tomato": (1, "cup")},
+    "beef steak": {"beef": (1, "pcs"), "salt": (0.5, "tsp"), "black pepper": (0.25, "tsp"), "oil": (1, "tbsp")},
+    "fried rice": {"rice": (1.5, "cup"), "eggs": (1, "pcs"), "oil": (1, "tbsp"), "salt": (0.5, "tsp")},
+    "chicken sandwich": {"bread": (2, "pcs"), "chicken": (1, "pcs"), "lettuce": (0.5, "cup"),
+                         "mayonnaise": (1, "tbsp"), "salt": (0.25, "tsp")}
+}
+
+arab_recipes = {
+    "hummus": {"chickpeas": (2, "cup"), "tahini": (2, "tbsp"), "lemon": (1, "pcs"),
+               "garlic": (1, "pcs"), "salt": (0.5, "tsp"), "oil": (1, "tbsp")},
+    "falafel": {"chickpeas": (1.5, "cup"), "onion": (1, "pcs"), "garlic": (2, "pcs"),
+                "salt": (0.5, "tsp"), "black pepper": (0.25, "tsp"), "oil": (2, "tbsp")},
+    "shawarma": {"chicken": (2, "pcs"), "yogurt": (0.5, "cup"), "garlic": (2, "pcs"),
+                 "oil": (1, "tbsp"), "salt": (0.5, "tsp"), "turmeric": (0.5, "tsp")},
+    "fattoush": {"lettuce": (1, "cup"), "cucumber": (1, "pcs"), "tomato": (1, "cup"),
+                 "pita bread": (1, "pcs"), "lemon": (1, "pcs"), "oil": (1, "tbsp"), "salt": (0.5, "tsp")},
+    "shakshuka": {"eggs": (3, "pcs"), "tomato": (1.5, "cup"), "onion": (1, "pcs"),
+                  "oil": (1, "tbsp"), "salt": (0.5, "tsp"), "black pepper": (0.25, "tsp")}
+}
+
+all_recipes = {**asian_recipes, **western_recipes, **arab_recipes}
+
+# ---------------------------
+# Initialize core objects
+# ---------------------------
+stock = KitchenStock()
+recipe_book = RecipeBook(all_recipes)
+ml_model = MLModel(all_recipes, stock)
+assistant = CookingAssistant(stock, recipe_book, ml_model)
+
+# ---------------------------
+# GUI: run function (single definition)
+# ---------------------------
+def run_gui(assistant, asian_recipes, western_recipes, arab_recipes):
+    root = tk.Tk()
+    root.title("Cooking Assistant 🍳")
+    root.configure(bg="#1F2937")
+    root.geometry("820x620")
+
+    title_font = ("Segoe UI", 16, "bold")
+    label_font = ("Segoe UI", 12, "bold")
+    text_font = ("Consolas", 12)
+    btn_font = ("Segoe UI", 11, "bold")
+
+    header = tk.Label(root, text="Cooking Assistant", bg="#1F2937", fg="white", font=title_font)
+    header.pack(pady=(12, 6))
+
+    sub = tk.Label(root, text="Choose cuisine, select a dish, enter your available ingredients, then submit.",
+                   bg="#1F2937", fg="#CBD5E1", font=("Segoe UI", 10))
+    sub.pack(pady=(0, 8))
+
+    # Cuisine selection
+    tk.Label(root, text="Cuisine:", bg="#1F2937", fg="white", font=label_font).pack(pady=(6, 2))
+    cuisine_var = tk.StringVar(value="Asian")
+    cuisine_frame = tk.Frame(root, bg="#1F2937")
+    cuisine_frame.pack()
+    for c in ["Asian", "Western", "Arab"]:
+        tk.Radiobutton(cuisine_frame, text=c, variable=cuisine_var, value=c,
+                       bg="#1F2937", fg="white", selectcolor="#1F2937", font=("Segoe UI", 11)).pack(side="left", padx=8)
+
+    # Dish selection
+    tk.Label(root, text="Dish:", bg="#1F2937", fg="white", font=label_font).pack(pady=(10, 2))
+    dish_var = tk.StringVar()
+    dish_menu = ttk.Combobox(root, textvariable=dish_var, font=("Segoe UI", 11), width=40, state="readonly")
+    dish_menu.pack(pady=4)
+
+    # Output box
+    output_box = tk.Text(root, height=18, width=95, bg="#0B1220", fg="#E5E7EB", font=text_font, relief="flat")
+    output_box.pack(pady=10)
+
+    # Style combobox
+    style = ttk.Style()
+    try:
+        style.theme_use("clam")
+    except Exception:
+        pass
+    style.configure("TCombobox", fieldbackground="#0B1220", foreground="#E5E7EB", background="#374151")
+
+    def get_cuisine_recipes():
+        c = cuisine_var.get()
+        if c == "Asian":
+            return asian_recipes
+        elif c == "Western":
+            return western_recipes
+        else:
+            return arab_recipes
+
+    def update_dish_menu(*args):
+        recipes = get_cuisine_recipes()
+        dish_menu['values'] = [dish.title() for dish in recipes.keys()]
+        dish_menu.set("")
+    cuisine_var.trace_add("write", update_dish_menu)
+    update_dish_menu()
+
+    # Toast label
+    toast_var = tk.StringVar(value="")
+    toast_label = tk.Label(root, textvariable=toast_var, bg="#064E3B", fg="#D1FAE5", font=("Segoe UI", 10), padx=10, pady=6)
+    toast_label.pack(pady=(0, 6))
+    toast_label.pack_forget()
+
+    def show_toast(msg, bg="#064E3B", fg="#D1FAE5", ms=2000):
+        toast_label.configure(bg=bg, fg=fg)
+        toast_var.set(msg)
+        toast_label.pack(pady=(0, 6))
+        root.after(ms, lambda: toast_label.pack_forget())
+
+    def check_dish():
+        cuisine_recipes = get_cuisine_recipes()
+        dish = dish_var.get().strip().lower()
+        recipe = cuisine_recipes.get(dish)
+        output_box.delete("1.0", tk.END)
+
+        if not recipe:
+            output_box.insert(tk.END, f"❗ Recipe '{dish}' not found in {cuisine_var.get()} cuisine.\n\n")
+            output_box.insert(tk.END, "👉 Smart Suggestions:\n")
+            for s in assistant.suggest_alternatives():
+                output_box.insert(tk.END, f"- {s.title()}\n")
+            show_toast("Dish not found. Suggestions shown.", bg="#7C2D12", fg="#FFEDD5")
+            return
+
+        output_box.insert(tk.END, f"Ingredients required for {dish.title()} ({cuisine_var.get()}):\n")
+        for item, (qty, unit) in recipe.items():
+            display_qty = int(qty) if unit == "pcs" else round(qty, 2)
+            output_box.insert(tk.END, f"- {item}: need {display_qty} {unit}\n")
+
+        # Pop-up to enter available quantities
+        input_window = tk.Toplevel(root)
+        input_window.title("Enter Your Ingredient Quantities")
+        input_window.configure(bg="#0B1220")
+        tk.Label(input_window, text="Enter how much you have (amount + unit)", font=("Segoe UI", 11, "bold"),
+                 bg="#0B1220", fg="#E5E7EB").pack(pady=8)
+
+        entries = {}
+        unit_selectors = {}
+
+        for item in recipe.keys():
+            frame = tk.Frame(input_window, bg="#0B1220")
+            frame.pack(fill="x", padx=10, pady=5)
+            tk.Label(frame, text=f"{item}:", font=("Segoe UI", 11), width=18, anchor="w",
+                     bg="#0B1220", fg="#E5E7EB").pack(side="left")
+            e = tk.Entry(frame, width=10, bg="#111827", fg="#E5E7EB", insertbackground="#E5E7EB", relief="flat")
+            e.pack(side="left", padx=(0, 6))
+            entries[item] = e
+            default_unit = BASE_UNIT.get(item, "pcs")
+            unit_cb = ttk.Combobox(frame, values=UNIT_OPTIONS, width=8, state="readonly")
+            unit_cb.set(default_unit if default_unit in UNIT_OPTIONS else "pcs")
+            unit_cb.pack(side="left")
+            unit_selectors[item] = unit_cb
+            hint = tk.Label(frame, text=f"({unit_cb.get()})", font=("Segoe UI", 10), bg="#0B1220", fg="#9CA3AF")
+            hint.pack(side="left", padx=6)
+            def make_update_hint(lbl, cb):
+                def upd(event=None):
+                    lbl.config(text=f"({cb.get()})")
+                return upd
+            unit_cb.bind("<<ComboboxSelected>>", make_update_hint(hint, unit_cb))
+
+        def submit_quantities():
+            assistant.stock.reset()
+            try:
+                for item in recipe.keys():
+                    txt = entries[item].get().strip()
+                    qty_val = float(txt) if txt else 0.0
+                    chosen_unit = unit_selectors[item].get()
+                    qty_in_base = convert_to_base(qty_val, chosen_unit, item)
+                    assistant.stock.update_stock(item, qty_in_base)
+            except ValueError:
+                show_toast("Enter numeric amounts only (e.g., 1 or 0.5).", bg="#7C2D12", fg="#FFEDD5", ms=3000)
+                return
+
+            missing, err = assistant.can_cook(dish)
+            output_box.delete("1.0", tk.END)
+            if not missing:
+                output_box.insert(tk.END, f"✅ You can cook {dish.title()} right now!\n")
+                show_toast("Great — you have enough ingredients.", bg="#065F46", fg="#D1FAE5")
+            else:
+                output_box.insert(tk.END, f"❌ You cannot cook {dish.title()}.\nMissing items:\n")
+                for item, (qty, unit) in missing.items():
+                    output_box.insert(tk.END, f"- {item}: need {qty} {unit} more\n")
+                # Smart suggestions scoped to current cuisine
+                suggestions = assistant.suggest_alternatives(scope_recipes=cuisine_recipes)
+                if suggestions:
+                    output_box.insert(tk.END, "\n👉 Smart Suggestions (based on your stock):\n")
+                    for s in suggestions:
+                        output_box.insert(tk.END, f"- {s.title()}\n")
+                    show_toast("Suggested alternatives shown.", bg="#374151", fg="#E5E7EB")
+                else:
+                    output_box.insert(tk.END, "\nNo suitable alternatives found.\n")
+                    show_toast("No alternatives available.", bg="#7C2D12", fg="#FFEDD5")
+            input_window.destroy()
+
+        tk.Button(input_window, text="Submit", command=submit_quantities,
+                  bg="#2563EB", fg="white", font=btn_font, relief="flat").pack(pady=10)
+
+    # Action buttons
+    actions = tk.Frame(root, bg="#1F2937")
+    actions.pack(pady=6)
+    tk.Button(actions, text="Check Dish", command=check_dish,
+              bg="#10B981", fg="white", font=btn_font, relief="flat", padx=12, pady=6).pack(side="left", padx=8)
+    tk.Button(actions, text="Exit", command=root.quit,
+              bg="#EF4444", fg="white", font=btn_font, relief="flat", padx=12, pady=6).pack(side="left", padx=8)
+
+    root.mainloop()
+
+# ---------------------------
+# Run the app
+# ---------------------------
+if __name__ == "__main__":
+    run_gui(assistant, asian_recipes, western_recipes, arab_recipes)
