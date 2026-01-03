@@ -35,89 +35,100 @@
 - Context-aware suggestions based on your current stock
 
 **User-Friendly Interface**
-- Modern dark-themed GUI built with Tkinter
-- Cuisine-based filtering
-- Interactive ingredient input system
-- Real-time availability checking
+- 🎨 Modern dark-themed GUI built with Tkinter
+- 🌍 Cuisine-based filtering (Asian, Western, Arab)
+- ⚡ Interactive ingredient input system
+- ✅ Real-time availability checking
 
 ---
 
 ## Technology Stack
 
+<div align="center">
+
+### Core Technologies
+
 <table>
 <tr>
-<td align="center" width="33%">
-
-**Core Language**
-
-Python 3.8+
-
+<td align="center" width="25%">
+<img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" /><br>
+<b>Python 3.8+</b><br>
+<sub>Core Language</sub>
 </td>
-<td align="center" width="33%">
-
-**GUI Framework**
-
-Tkinter
-
+<td align="center" width="25%">
+<img src="https://img.shields.io/badge/Tkinter-FF6B6B?style=for-the-badge&logo=python&logoColor=white" /><br>
+<b>Tkinter</b><br>
+<sub>GUI Framework</sub>
 </td>
-<td align="center" width="33%">
-
-**ML Library**
-
-scikit-learn
-
+<td align="center" width="25%">
+<img src="https://img.shields.io/badge/scikit--learn-F7931E?style=for-the-badge&logo=scikit-learn&logoColor=white" /><br>
+<b>scikit-learn</b><br>
+<sub>ML Library</sub>
 </td>
-</tr>
-<tr>
-<td align="center" width="33%">
-
-**Data Processing**
-
-Pandas
-
-</td>
-<td align="center" width="33%">
-
-**Algorithm**
-
-K-Nearest Neighbors
-
-</td>
-<td align="center" width="33%">
-
-**Similarity Metric**
-
-Cosine Distance
-
+<td align="center" width="25%">
+<img src="https://img.shields.io/badge/Pandas-150458?style=for-the-badge&logo=pandas&logoColor=white" /><br>
+<b>Pandas</b><br>
+<sub>Data Processing</sub>
 </td>
 </tr>
 </table>
+
+### Machine Learning Architecture
+
+<table>
+<tr>
+<td align="center" width="50%">
+<img src="https://img.shields.io/badge/Algorithm-K--Nearest_Neighbors-00D9FF?style=for-the-badge" /><br>
+<b>K-Nearest Neighbors</b><br>
+<sub>Pattern Recognition Algorithm</sub>
+</td>
+<td align="center" width="50%">
+<img src="https://img.shields.io/badge/Metric-Cosine_Distance-BB9AF7?style=for-the-badge" /><br>
+<b>Cosine Similarity</b><br>
+<sub>Ingredient Matching</sub>
+</td>
+</tr>
+</table>
+
+</div>
 
 ---
 
 ## Installation
 
-### Prerequisites
+<div align="center">
+
+### 📋 Prerequisites
+
+<img src="https://img.shields.io/badge/Python-3.8+-success?style=for-the-badge&logo=python&logoColor=white" />
 
 Ensure you have Python 3.8 or higher installed on your system.
 
-### Setup Instructions
+</div>
 
-**Clone the repository**
+### 🚀 Setup Instructions
+
+**Step 1: Clone the repository**
 ```bash
 git clone https://github.com/yourusername/cooking-assistant.git
 cd cooking-assistant
 ```
 
-**Install required dependencies**
+**Step 2: Install required dependencies**
 ```bash
 pip install pandas scikit-learn
 ```
 
-**Run the application**
+**Step 3: Run the application**
 ```bash
 python cooking_assistant.py
 ```
+
+<div align="center">
+
+### ✨ That's it! Your Cooking Assistant is ready to use.
+
+</div>
 
 ---
 
